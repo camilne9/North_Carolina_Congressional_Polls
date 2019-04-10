@@ -1,0 +1,135 @@
+---
+title: "North Carolina Congressional Polls"
+subtitle: "North Carolina's 9th District"
+author: "Christopher Milne"
+date: "4/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readr)
+library(ggplot2)
+library(gt)
+library(devtools)
+library(ggthemes)
+#These commands load the necessary packages.
+data <- read_csv("ps_4_elections-poll-nc09-3.csv", 
+                 col_types = cols(timestamp = col_datetime(format = "")))
+#The data frame is loaded in and named, with the timestamp variable interpreted as a datetime so it is easier to work with later.
+```
+
+
+##North Carolina 9th District: Voter Preference by Race
+```{r, table by race, echo = FALSE}
+x <-data %>% 
+  select(response, race_eth, final_weight) %>% 
+#Only the needed variable are considered for simplicity
+  filter(race_eth != "[DO NOT READ] Don't know/Refused") %>% 
+#This removes the undesired case where race was unknown from the data set
+  mutate(race_eth = fct_relevel(race_eth, c("White", "Black", "Hispanic", "Asian", "Other"))) %>%
+#The race factor is releveled so the races will appear in the desired order when race_eth is later used as a variable in the table.
+  group_by(response, race_eth) %>%
+  summarize(total = sum(final_weight))
+#The entries were grouped by response and race and another variable was added to account not only for how many people were in each group, but also how these people were weighted in the pollling.
+
+y <-x %>% 
+  spread(key = response, value = total, fill = 0) %>% 
+#This takes the responses and makes each a column with entries being the weighted total. NA values are made to be zero so math functions can still act on them.
+  mutate(all = Dem + Rep + Und + `3`) %>% 
+  mutate(DEM = Dem/all) %>% 
+  mutate(REP = Rep/all) %>% 
+  mutate(UND = Und/all) %>% 
+#This turns the entries into proportions by establishing the total population for each row and dividing the number of entries in a particular race-repsonse group by this overall row (race) population. Third party preferences are not made to be an output, but they are accounted for so the proportions are not actificially altered by excluding people with third party preferences.
+  select(race_eth, DEM:UND)
+#The desired column variables are selected, notably excluding third party as a response variable.
+
+gt(y) %>% 
+#This uses the gt package to generate a particular style of table.
+  tab_header(
+    title = "North Carolina 9th District: Voter Preference by Race") %>% 
+  tab_source_note("New York Times Upshot/Siena College 2018 live polls") %>% 
+#The table is given a title and the course is added as a caption.
+  
+  cols_label(
+    race_eth = "",
+    DEM = "Democrat",
+    REP = "Republican",
+    UND = "Undecided"
+) %>% 
+#The columns are renamed to be more clear and the race column is left unlabeled to match the desired table.
+  fmt_percent(columns = vars(DEM, REP, UND),
+                decimals = 0) %>% 
+#The proportions are changed to be percentages and are rounded so they don't have any decimals.
+  na_if(0) %>%
+  fmt_missing(columns = vars(UND), rows =4)
+#Since the zero percent entry actually indicates an entry that is NA because there were no repsonses applying to it, the entry is changed to indicate that there is no data for that cell by first making the 0 an NA and then making NA a missing entry.
+  
+```
+
+##More Educated Matter Less in North Carolina 9th
+```{r, North Carolina Polling Graph, echo = FALSE}
+x <- data %>% 
+  select(response, educ, final_weight) %>% 
+#The relevant variables are isolated for simplicity
+  filter(educ != "[DO NOT READ] Refused")
+#People whose education is unknown are removed.
+x %>% 
+  mutate(educ = fct_relevel(educ, c("Grade school", "High school", "Some college or trade school",
+                                    "Bachelors' degree", "Graduate or Professional Degree"))) %>% 
+#The education variable, a factor, is releveled so that when it is graphed later the different possibilities appear in the desired order.
+  group_by(educ) %>% 
+#The data is grouped by education level.
+  ggplot(aes(y = final_weight, x = educ)) +
+#A plot is created with the education categories on the x axis and the weight on the y axis. This is opposite of what is ultimately desired so that the continuous variable is put on the y axis.
+  geom_violin() +
+#The violin plot shows the frequency of different weights for each education category. It is put before the jitter plot so the points of the jitter go on top of the violin.
+  geom_jitter(alpha = .4, width= .2, size = .95)+
+#The points of the jitter plot are made lighter, restricted to closer to the center of the violin and made slightly smaller to better match the model plot.  
+  coord_flip()+
+#The axes are fliped to match the desired plot.
+  labs(title = "More Educated Matter Less in North Carolina 9th",
+       subtitle = "Poll gives more weight to people who are less likely to participate in polls",
+       y= "Weight Given to Respondent in Calculating Poll Results",
+       x = NULL,
+       caption = "New York Times Upshot/Siena College 2018 live polls")
+#Title, subtitle, axis titles, and a caption are added to math the desired plot. The axis labels reflect the fact that a coordinate flip was performed.
+```
+
+##Voting Preference by Party Identification in North Carolina's 9th District
+```{r, voting preference by party, echo = FALSE}
+z <- data %>% 
+  filter(likely != "[DO NOT READ] Don't know/Refused") %>% 
+  mutate(Likelihood = fct_relevel(likely, c( "Not at all likely","Not very likely",
+                                        "Somewhat likely", "Very likely",
+                                        "Almost certain", "Already voted"))) %>% 
+#The likely variable is adjusted to exclude cases where it is unknown and it is releveled so that the variable can later be applied in the graph meaningfully and having a logical order. It is renamed Likelihood for clarity when it is used in the graph later.
+  group_by(partyid, response, Likelihood) %>% 
+#This grouping explores the combination of the three variables of interest.
+  select(partyid, response, Likelihood, final_weight) %>% 
+#The relevant variables are isolated for simplicity. The final weight variable is necessary so that poll counts can reflect more accurately the necessary ajustments due to sampling error.
+  filter(partyid %in% c("Democrat", "Republican", "Independent (No party)")) %>% 
+#For clarity only the most common party identification categories are used. Other groups would be too small in comparison to be particularly illuminating.
+  filter(response %in% c("Dem", "Rep")) %>% 
+#Similar to the filter on partyid, the above filter is used because only the most popular responses are frequent enough to provide useful information.
+  summarize(total = sum(final_weight))
+#A variable is defined to reflect not just the number of people who fit a particular category, but also the weight of these people based on the response limitations of polling.
+
+z %>% 
+  ggplot(aes(x= response, y = total, fill = Likelihood))+
+#A plot is created with response as the independent variable, the weighted voting power as the dependent variable, and likelihood of the voter actually voting as they say indicated by the fill color.
+  facet_wrap("partyid")+
+#The graph will have three sections, one for each major party (or lack thereof).
+  geom_col()+
+#This geom uses the fact that the independent variable is categorical and the dependent variable is numerical. (It also allows fill.)
+  labs(title = "Voting Preference by Party Identification in North Carolina's 9th District",
+       subtitle = "Likelihood of Vote Matching Response is Considered",
+       x = "Voting Preference",
+       y = "Weighted Voting Power",
+       caption = "Source: New York Times Upshot/Siena College 2018 live polls")+
+#Titles are added to clarify what variables are shown where and where the data comes from.
+  theme_bw()+
+  theme(panel.grid.major.x = element_blank())
+#These commands make the graph look better aestetically. The background is made to be white and the verticle lines (which contribute nothing to the graph's readability) are removed.
+```
